@@ -1,25 +1,74 @@
-# 1 ) https://supabase.com/docs/reference/python/introduction?queryGroups=platform&platform=conda
-# grant access pour RPC ( la method est deja fait )
-# faire le client + call RPC => et mettre ça dans un @Tool 
-# faire un agent qui utilisera le tool
+"""Standalone RAG agent — Supabase vector search + Gemini."""
+
+from __future__ import annotations
+
+import os
+
+from dotenv import load_dotenv
+from langchain.agents import create_agent
+from langchain.tools import tool
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph import MessagesState
+from supabase import Client, create_client
+
+load_dotenv()
+
+# ── Clients ───────────────────────────────────────────────────────────────────
+
+supabase: Client = create_client(
+    os.environ["SUPABASE_URL"],
+    os.environ["SUPABASE_KEY"],
+)
+
+embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-2")
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+
+@tool
+def search_docs(query: str) -> str:
+    """Search relevant documents from the vector database for the given query."""
+    vector = embeddings.embed_query(query)
+    response = supabase.rpc(
+        "match_documents_2",
+        {"query_embedding": vector, "match_count": 1},
+    ).execute()
+    return str(response.data)
 
 
+# ── Graph ─────────────────────────────────────────────────────────────────────
+
+def build_graph():
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        streaming=True,
+    )
+
+    agent = create_agent(
+        model=llm,
+        tools=[search_docs],
+        system_prompt="Tu es un assistant qui répond aux questions en cherchant dans la base documentaire.",
+        name="rag_agent",
+    )
+
+    graph = StateGraph(MessagesState)
+    graph.add_node("agent", agent)
+    graph.add_edge(START, "agent")
+    graph.add_edge("agent", END)
+
+    return graph.compile()
 
 
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    app = build_graph()
+    q = "Combien coûte le pipe 25mm ?"
+    inputs = {"messages": [{"role": "user", "content": q}]}
+
+    for chunk in app.stream(inputs, stream_mode="updates"): # type: ignore
+        print(chunk)
 
 
-
-
-
-# TODO là en gros il faut : creer la method SQL dans supabase qui est une method SQL qui fait un search à la con sur la base vector 
-# TODO => init le client + call RPC dans une method qui sera utilisé par un @Tool
-# TODO => créer un agent qui va utiliser ce tool pour résoudre la question
-
-
-# https://docs.langchain.com/oss/python/integrations/vectorstores/supabase?_gl=1*75dmu6*_gcl_au*MTk3MTA3MTI3Ni4xNzc2ODAwODQ0*_ga*MTgyMTUyMzYuMTc3NjgwMDg0NA..*_ga_47WX3HKKY2*czE3NzY5ODMxMDkkbzYkZzAkdDE3NzY5ODMxMDkkajYwJGwwJGgw
-
-
-# TODO : https://docs.langchain.com/oss/python/langchain/tools
-# create retriever ( RAG ) => just RPC call with supabase using sql method with embedding search 
-# and agent will call the right tool 
-
+if __name__ == "__main__":
+    main()
