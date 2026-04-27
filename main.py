@@ -6,6 +6,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from controllers.UploadController import router as upload_router
+
 load_dotenv()
 
 app = FastAPI(title="RAG Agent Streaming")
@@ -17,6 +19,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(upload_router)
 
 @app.get("/health")
 async def health():

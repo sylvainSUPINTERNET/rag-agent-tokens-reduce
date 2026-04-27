@@ -3,3 +3,4 @@ email.png
 .vscode/
 _pycache_/
 old/
+**/__pycache__/

@@ -3,3 +3,6 @@ langchain-google-genai
 python-dotenv
 supabase
 fastapi
+PyMuPDF
+pymupdf4llm
+pymupdf-fonts
