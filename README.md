@@ -4,3 +4,8 @@ Pour chaque page, demander à l'IA de résumer sans perdre les détails importan
 Donc l'organisation doit être opti pour ça 
 
 supervisor + graph + agent qui va utilisé comme tool la method RPC creer côté supabasep our faire la recherche
+
+
+python -m pip install fastapi
+
+python -m http.server 3000
