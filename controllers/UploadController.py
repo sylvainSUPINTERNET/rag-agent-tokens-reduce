@@ -7,6 +7,12 @@ from typing import Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, status
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from dotenv import load_dotenv
+import fitz  # PyMuPDF
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+import pymupdf4llm
+import json
+
+from controllers.Prompt import PROMPT
 
 load_dotenv()
 
@@ -27,6 +33,13 @@ ALLOWED_MIME_TYPES = {
 
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 Mo
 
+# shit model but ok
+model = ChatGoogleGenerativeAI(model="gemini-2.5-flash", 
+                               temperature=0
+                               #vertexai=True,
+                               )
+
+embedding_model = GoogleGenerativeAIEmbeddings(model="gemini-embedding-2")
 
 def get_blob_service_client() -> Optional[BlobServiceClient]:
     """Initialise le client Azure Blob."""
@@ -83,6 +96,43 @@ async def upload_to_azure(file: UploadFile) -> str:
     
     return blob_client.url
 
+async def read_page(file: UploadFile) :
+
+    all_items_found = []
+    
+    stream = await file.read()
+    doc = fitz.open(stream=stream, filetype="pdf")
+    for i in range(doc.page_count):
+        print(f"Processing page {i+1}/{doc.page_count}...")
+        md = pymupdf4llm.to_markdown(doc, pages=[i])
+        print(md)  # Debug: affiche le markdown extrait de la page
+        print("Sending to model with prompt...")  # Debug: indique que le prompt est envoyé au modèle
+        response = await model.ainvoke([
+            ("system", PROMPT),
+            ("human", md) # type: ignore
+        ])
+        print("Response from model:", response.content)  # Debug: affiche la réponse brute du modèle
+        print(response.usage_metadata)
+        try:
+            content = response.content
+            print(content)
+            items = json.loads(content) # type: ignore
+            print(items)
+            all_items_found.extend(items)
+            print(all_items_found)
+        except Exception as e:
+            print("JSON parsing error:", e)
+
+    
+    # embedding 
+    if all_items_found:
+        for item in all_items_found:
+            search_text = item.get("search_text")
+            if search_text:
+                print(search_text)
+                embedding = embedding_model.embed_query(search_text)
+                print(embedding)
+
 
 @router.post("/file")
 async def upload_file(file: UploadFile = File(...)):
@@ -95,6 +145,8 @@ async def upload_file(file: UploadFile = File(...)):
     """
     # Validation
     validate_file(file)
+
+    await read_page(file)
     
     # Upload vers Azure
     url = await upload_to_azure(file)
